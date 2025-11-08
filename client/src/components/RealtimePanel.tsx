@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import EventLog from "./EventLog";
 import ToolPanel from "./ToolPanel";
+import ConversationTranscript from "./ConversationTranscript";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 type RealtimeEvent = {
   event_id?: string;
@@ -38,9 +40,26 @@ export default function RealtimePanel() {
   const [toolsRegistered, setToolsRegistered] = useState(false);
   const [registeredTools, setRegisteredTools] = useState<string[]>([]);
   const [executingTool, setExecutingTool] = useState<string | null>(null);
+  const [microphoneActive, setMicrophoneActive] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+  const [audioBlocked, setAudioBlocked] = useState(false);
 
   const peerConnection = useRef<RTCPeerConnection | null>(null);
   const audioElement = useRef<HTMLAudioElement | null>(null);
+  const localStream = useRef<MediaStream | null>(null);
+
+  // Function to manually enable audio (for autoplay policy)
+  const enableAudio = async () => {
+    if (audioElement.current && audioElement.current.srcObject) {
+      try {
+        await audioElement.current.play();
+        setAudioBlocked(false);
+        console.log("✅ Audio manually enabled");
+      } catch (error) {
+        console.error("❌ Failed to enable audio:", error);
+      }
+    }
+  };
 
   async function startSession() {
     try {
@@ -57,23 +76,148 @@ export default function RealtimePanel() {
       const data = await tokenResponse.json();
       const EPHEMERAL_KEY = data.value;
 
-      // Create a peer connection
-      const pc = new RTCPeerConnection();
+      // Create a peer connection with explicit configuration
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: "stun:stun.l.google.com:19302" }],
+      });
+
+      console.log("✅ Peer connection created");
+
+      // Monitor peer connection state
+      pc.oniceconnectionstatechange = () => {
+        console.log("🔌 ICE connection state:", pc.iceConnectionState);
+      };
+      pc.onconnectionstatechange = () => {
+        console.log("🔌 Connection state:", pc.connectionState);
+      };
+      pc.onsignalingstatechange = () => {
+        console.log("🔌 Signaling state:", pc.signalingState);
+      };
 
       // Set up to play remote audio from the model
       audioElement.current = document.createElement("audio");
       audioElement.current.autoplay = true;
-      pc.ontrack = (e) => {
-        if (audioElement.current) {
+      audioElement.current.setAttribute("playsinline", "true"); // Important for mobile
+
+      // Add immediately to document to ensure autoplay works
+      audioElement.current.style.display = "none";
+      document.body.appendChild(audioElement.current);
+      console.log("✅ Audio element added to document");
+
+      pc.ontrack = async (e) => {
+        console.log("🔊 Received audio track from OpenAI");
+        console.log("Track details:", e.track.kind, e.track.readyState);
+        console.log("Streams:", e.streams.length);
+
+        if (audioElement.current && e.streams[0]) {
           audioElement.current.srcObject = e.streams[0];
+
+          // Force play (browser might block autoplay)
+          try {
+            await audioElement.current.play();
+            console.log("✅ Audio playback started");
+            setAudioBlocked(false);
+          } catch (error) {
+            console.error("❌ Audio playback blocked by browser:", error);
+            console.log("💡 User interaction required to enable audio");
+            setAudioBlocked(true);
+          }
         }
       };
 
       // Add local audio track for microphone input in the browser
-      const ms = await navigator.mediaDevices.getUserMedia({
-        audio: true,
-      });
-      pc.addTrack(ms.getTracks()[0]);
+      console.log("🎤 Requesting microphone access...");
+      console.log(
+        "Browser:",
+        navigator.userAgent.includes("Chrome")
+          ? "Chrome"
+          : navigator.userAgent.includes("Safari")
+          ? "Safari"
+          : "Other"
+      );
+
+      try {
+        // Chrome-compatible audio constraints
+        const audioConstraints = {
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+            // Chrome-specific: explicit sample rate
+            sampleRate: 24000,
+            channelCount: 1,
+          },
+        };
+
+        console.log("🎤 Audio constraints:", audioConstraints);
+        const ms = await navigator.mediaDevices.getUserMedia(audioConstraints);
+
+        console.log("✅ Microphone access granted!");
+        console.log("Stream details:", {
+          id: ms.id,
+          active: ms.active,
+          tracks: ms.getTracks().length,
+        });
+
+        localStream.current = ms;
+        setMicrophoneActive(true);
+
+        const audioTrack = ms.getAudioTracks()[0];
+        console.log("🎤 Audio track:", {
+          id: audioTrack.id,
+          kind: audioTrack.kind,
+          label: audioTrack.label,
+          enabled: audioTrack.enabled,
+          muted: audioTrack.muted,
+          readyState: audioTrack.readyState,
+        });
+        console.log("🎤 Audio track settings:", audioTrack.getSettings());
+        console.log(
+          "🎤 Audio track capabilities:",
+          audioTrack.getCapabilities()
+        );
+
+        // Add track to peer connection
+        const sender = pc.addTrack(audioTrack, ms);
+        console.log("✅ Audio track added to peer connection");
+        console.log("Track sender:", sender.track?.readyState);
+
+        // Monitor track state
+        audioTrack.onmute = () => console.warn("⚠️ Audio track muted");
+        audioTrack.onunmute = () => console.log("✅ Audio track unmuted");
+        audioTrack.onended = () => console.warn("⚠️ Audio track ended");
+      } catch (error) {
+        console.error("❌ Failed to get microphone access:", error);
+        console.error(
+          "Error name:",
+          error instanceof Error ? error.name : "Unknown"
+        );
+        console.error(
+          "Error message:",
+          error instanceof Error ? error.message : String(error)
+        );
+
+        // Chrome-specific error guidance
+        if (error instanceof Error) {
+          if (error.name === "NotAllowedError") {
+            console.error(
+              "💡 Chrome blocked microphone: Check site permissions in address bar"
+            );
+          } else if (error.name === "NotFoundError") {
+            console.error(
+              "💡 No microphone found: Check system audio settings"
+            );
+          } else if (error.name === "NotReadableError") {
+            console.error("💡 Microphone in use by another app");
+          }
+        }
+
+        throw new Error(
+          `Microphone access denied: ${
+            error instanceof Error ? error.message : String(error)
+          }`
+        );
+      }
 
       // Set up data channel for sending and receiving events
       const dc = pc.createDataChannel("oai-events");
@@ -92,6 +236,12 @@ export default function RealtimePanel() {
             instructions: instructions,
             tool_choice: "auto", // Let model decide when to use tools
             modalities: ["text", "audio"],
+            voice: "alloy", // Set voice for audio responses
+            input_audio_format: "pcm16",
+            output_audio_format: "pcm16",
+            input_audio_transcription: {
+              model: "whisper-1", // Enable transcription to see what's being heard
+            },
             turn_detection: {
               type: "server_vad",
               threshold: 0.5,
@@ -141,7 +291,7 @@ export default function RealtimePanel() {
       await pc.setLocalDescription(offer);
 
       const baseUrl = "https://api.openai.com/v1/realtime";
-      const model = "gpt-4o-realtime-preview-2024-12-17";
+      const model = "gpt-realtime-mini";
       const sdpResponse = await fetch(`${baseUrl}?model=${model}`, {
         method: "POST",
         body: offer.sdp,
@@ -168,8 +318,19 @@ export default function RealtimePanel() {
 
   // Stop current session, clean up peer connection and data channel
   function stopSession() {
+    console.log("🛑 Stopping session and cleaning up...");
+
     if (dataChannel) {
       dataChannel.close();
+    }
+
+    // Stop local microphone stream
+    if (localStream.current) {
+      localStream.current.getTracks().forEach((track) => {
+        track.stop();
+        console.log("🎤 Stopped microphone track");
+      });
+      localStream.current = null;
     }
 
     if (peerConnection.current) {
@@ -181,11 +342,23 @@ export default function RealtimePanel() {
       peerConnection.current.close();
     }
 
+    // Clean up audio element
+    if (audioElement.current && document.body.contains(audioElement.current)) {
+      document.body.removeChild(audioElement.current);
+      console.log("🔊 Removed audio element");
+    }
+    audioElement.current = null;
+
     setIsSessionActive(false);
     setDataChannel(null);
     setToolsRegistered(false);
     setRegisteredTools([]);
+    setMicrophoneActive(false);
+    setIsListening(false);
+    setAudioBlocked(false);
     peerConnection.current = null;
+
+    console.log("✅ Session stopped and cleaned up");
   }
 
   // Send a message to the model
@@ -256,7 +429,10 @@ export default function RealtimePanel() {
       if (item.arguments) {
         try {
           args = JSON.parse(item.arguments);
-          console.log("✅ Parsed arguments successfully:", JSON.stringify(args, null, 2));
+          console.log(
+            "✅ Parsed arguments successfully:",
+            JSON.stringify(args, null, 2)
+          );
         } catch (e) {
           console.error("❌ Failed to parse function arguments:", e);
           console.error("Raw arguments string:", item.arguments);
@@ -288,13 +464,17 @@ export default function RealtimePanel() {
       const duration = Date.now() - startTime;
 
       console.log(`⏱️ Tool execution took ${duration}ms`);
-      console.log(`📊 Response status: ${toolResponse.status} ${toolResponse.statusText}`);
+      console.log(
+        `📊 Response status: ${toolResponse.status} ${toolResponse.statusText}`
+      );
 
       if (!toolResponse.ok) {
         const errorText = await toolResponse.text();
         console.error("❌ Tool execution failed with error:");
         console.error(errorText);
-        throw new Error(`Tool execution failed (${toolResponse.status}): ${errorText}`);
+        throw new Error(
+          `Tool execution failed (${toolResponse.status}): ${errorText}`
+        );
       }
 
       const result = await toolResponse.json();
@@ -335,7 +515,7 @@ export default function RealtimePanel() {
       // Trigger a new response
       console.log("🔄 Triggering new response from model...");
       sendClientEvent({ type: "response.create" });
-      
+
       console.log("========================================");
       console.log("✅ FUNCTION CALL COMPLETE");
       console.log("========================================\n");
@@ -352,7 +532,7 @@ export default function RealtimePanel() {
         console.error("Stack:", error.stack);
       }
       console.error("========================================\n");
-      
+
       setExecutingTool(null);
 
       // Send error back to the model
@@ -360,7 +540,7 @@ export default function RealtimePanel() {
         error: error instanceof Error ? error.message : String(error),
         success: false,
       });
-      
+
       console.log("📨 Sending error to model:", errorOutput);
       sendClientEvent({
         type: "conversation.item.create",
@@ -370,7 +550,7 @@ export default function RealtimePanel() {
           output: errorOutput,
         },
       });
-      
+
       // Still trigger a response so the model can acknowledge the error
       sendClientEvent({ type: "response.create" });
     }
@@ -395,10 +575,50 @@ export default function RealtimePanel() {
 
         // Log specific events that might indicate tool usage
         if (event.type === "session.updated") {
-          console.log("✅ Session updated! Tools registered:", event.session?.tools?.length);
+          console.log(
+            "✅ Session updated! Tools registered:",
+            event.session?.tools?.length
+          );
         }
         if (event.type === "response.created") {
           console.log("🎤 Model is generating a response");
+        }
+
+        // Track voice activity and audio processing
+        if (event.type === "input_audio_buffer.committed") {
+          console.log("🎤 Audio buffer committed - processing speech");
+        }
+        if (event.type === "input_audio_buffer.speech_started") {
+          console.log("🎙️ Speech detected - listening...");
+          setIsListening(true);
+        }
+        if (event.type === "input_audio_buffer.speech_stopped") {
+          console.log("🎙️ Speech ended");
+          setIsListening(false);
+        }
+        if (
+          event.type === "conversation.item.input_audio_transcription.completed"
+        ) {
+          console.log("📝 Transcription completed:", event.item);
+          if (event.transcript) {
+            console.log("📝 You said:", event.transcript);
+          }
+        }
+        if (event.type === "response.audio.delta") {
+          // Don't log every delta, just note that audio is being received
+          if (!event.logged) {
+            console.log("🔊 Receiving audio response from AI...");
+            event.logged = true;
+          }
+        }
+        if (event.type === "response.audio.done") {
+          console.log("🔊 AI audio response complete");
+        }
+        if (
+          event.type === "response.audio_transcript.delta" ||
+          event.type === "response.audio_transcript.done"
+        ) {
+          console.log("💬 AI transcript:", event);
         }
 
         // Handle function calls - use response.function_call_arguments.done as primary trigger
@@ -408,11 +628,14 @@ export default function RealtimePanel() {
           event.item?.call_id
         ) {
           const callId = event.item.call_id;
-          
+
           // Avoid processing the same call twice
           if (!processedCalls.has(callId)) {
             processedCalls.add(callId);
-            console.log("🔧 Function call detected (arguments.done):", event.item);
+            console.log(
+              "🔧 Function call detected (arguments.done):",
+              event.item
+            );
             void handleFunctionCall(event.item);
           }
         }
@@ -423,11 +646,14 @@ export default function RealtimePanel() {
           event.item?.call_id
         ) {
           const callId = event.item.call_id;
-          
+
           // Only process if we haven't already handled it
           if (!processedCalls.has(callId)) {
             processedCalls.add(callId);
-            console.log("🔧 Function call detected (output_item.done):", event.item);
+            console.log(
+              "🔧 Function call detected (output_item.done):",
+              event.item
+            );
             void handleFunctionCall(event.item);
           }
         }
@@ -460,15 +686,26 @@ export default function RealtimePanel() {
       <div className="shrink-0 px-4 py-3 border-b border-gray-200 bg-gray-50">
         <div className="flex items-center justify-between mb-2">
           <span className="text-xs font-medium text-gray-700">Status</span>
-          <div className="flex items-center gap-2">
-            <div
-              className={`w-2 h-2 rounded-full ${
-                isSessionActive ? "bg-green-500 animate-pulse" : "bg-gray-300"
-              }`}
-            />
-            <span className="text-xs text-gray-600">
-              {isSessionActive ? "Connected" : "Disconnected"}
-            </span>
+          <div className="flex items-center gap-3">
+            {/* Connection Status */}
+            <div className="flex items-center gap-2">
+              <div
+                className={`w-2 h-2 rounded-full ${
+                  isSessionActive ? "bg-green-500 animate-pulse" : "bg-gray-300"
+                }`}
+              />
+              <span className="text-xs text-gray-600">
+                {isSessionActive ? "Connected" : "Disconnected"}
+              </span>
+            </div>
+
+            {/* Microphone Status */}
+            {microphoneActive && (
+              <div className="flex items-center gap-1">
+                <span className="text-xs">🎤</span>
+                <span className="text-xs text-gray-600">Mic Active</span>
+              </div>
+            )}
           </div>
         </div>
 
@@ -482,6 +719,28 @@ export default function RealtimePanel() {
         >
           {isSessionActive ? "Disconnect" : "Start Session"}
         </button>
+
+        {/* Audio Blocked Warning */}
+        {audioBlocked && (
+          <div className="mt-2">
+            <div className="px-2 py-1 bg-yellow-100 border border-yellow-300 rounded text-xs text-yellow-800">
+              🔇 Audio blocked by browser
+            </div>
+            <button
+              onClick={enableAudio}
+              className="w-full mt-1 py-1 px-2 bg-yellow-600 hover:bg-yellow-700 text-white text-xs font-semibold rounded transition-colors"
+            >
+              Click to Enable Audio
+            </button>
+          </div>
+        )}
+
+        {/* Listening Indicator */}
+        {isListening && (
+          <div className="mt-2 px-2 py-1 bg-purple-100 border border-purple-300 rounded text-xs text-purple-800 animate-pulse">
+            🎙️ Listening to your voice...
+          </div>
+        )}
 
         {toolsRegistered && (
           <div className="mt-2 text-xs text-emerald-600">
@@ -525,24 +784,48 @@ export default function RealtimePanel() {
         </div>
       )}
 
-      {/* Tool Panel */}
-      <div className="shrink-0 px-4 py-3 border-b border-gray-200 max-h-[200px] overflow-y-auto">
-        <ToolPanel
-          sendClientEvent={sendClientEvent}
-          events={events}
-          isSessionActive={isSessionActive}
-        />
-      </div>
+      {/* Transcript & Event Log Tabs */}
+      <div className="flex-1 overflow-hidden flex flex-col">
+        <Tabs defaultValue="transcript" className="flex-1 flex flex-col">
+          <div className="shrink-0 px-4 pt-3">
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="transcript">Conversation</TabsTrigger>
+              <TabsTrigger value="events">Event Log</TabsTrigger>
+              <TabsTrigger value="tools">Tool Calls</TabsTrigger>
+            </TabsList>
+          </div>
 
-      {/* Event Log */}
-      <div className="flex-1 overflow-y-auto px-4 py-3">
-        <div className="mb-2">
-          <h3 className="text-xs font-semibold text-gray-700">Event Log</h3>
-          <p className="text-xs text-gray-500">
-            {events.length} event{events.length !== 1 ? "s" : ""}
-          </p>
-        </div>
-        <EventLog events={events} />
+          <TabsContent
+            value="transcript"
+            className="flex-1 overflow-y-auto px-4 py-3 mt-0"
+          >
+            <ConversationTranscript events={events} />
+          </TabsContent>
+
+          <TabsContent
+            value="events"
+            className="flex-1 overflow-y-auto px-4 py-3 mt-0"
+          >
+            <div className="mb-2">
+              <h3 className="text-xs font-semibold text-gray-700">Event Log</h3>
+              <p className="text-xs text-gray-500">
+                {events.length} event{events.length !== 1 ? "s" : ""}
+              </p>
+            </div>
+            <EventLog events={events} />
+          </TabsContent>
+
+          <TabsContent
+            value="tools"
+            className="flex-1 overflow-y-auto px-4 py-3 mt-0"
+          >
+            <ToolPanel
+              sendClientEvent={sendClientEvent}
+              events={events}
+              isSessionActive={isSessionActive}
+            />
+          </TabsContent>
+        </Tabs>
       </div>
     </div>
   );
