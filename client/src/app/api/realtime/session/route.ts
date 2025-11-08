@@ -1,6 +1,83 @@
 import { NextResponse } from "next/server";
+import systemPromptData from "@/system-prompt.json";
 
 import { listExcalidrawTools } from "@/lib/mcp/excalidrawClient";
+
+// Convert system prompt JSON to readable instructions for Realtime API
+function formatSystemPrompt(promptData: typeof systemPromptData): string {
+  const content = promptData.content;
+
+  let instructions = `${content.summary}\n\n`;
+
+  instructions += `## DESCRIPTION\n${content.description}\n\n`;
+
+  instructions += `## TEACHING STYLE\n`;
+  instructions += `Tone: ${content.teaching_style.tone}\n`;
+  instructions += `Approach:\n`;
+  content.teaching_style.approach.forEach((item) => {
+    instructions += `- ${item}\n`;
+  });
+  instructions += `\n`;
+
+  instructions += `## TOPIC FOCUS\n`;
+  content.topic_focus.forEach((topic) => {
+    instructions += `- ${topic}\n`;
+  });
+  instructions += `\n`;
+
+  instructions += `## BEHAVIOR\n`;
+  instructions += `When session starts:\n`;
+  content.behavior.realtime_start.forEach((action) => {
+    instructions += `- ${action}\n`;
+  });
+  instructions += `\nWhen user interrupts with a question:\n`;
+  content.behavior.interruptions.on_user_question.forEach((action) => {
+    instructions += `- ${action}\n`;
+  });
+  instructions += `\nWhen user draws on canvas:\n`;
+  content.behavior.canvas_user_input.on_unknown_user_drawing.forEach(
+    (action) => {
+      instructions += `- ${action}\n`;
+    }
+  );
+  instructions += `\n`;
+
+  instructions += `## AVAILABLE TOOLS\n`;
+  content.allowed_tools.forEach((tool) => {
+    instructions += `- ${tool}\n`;
+  });
+  instructions += `\n`;
+
+  instructions += `## IMPORTANT RULES\n`;
+  content.rules.forEach((rule) => {
+    instructions += `- ${rule}\n`;
+  });
+  instructions += `\n`;
+
+  instructions += `## WORKFLOW\n`;
+  instructions += `Initial lesson flow:\n`;
+  content.workflow_example.initial.forEach((step) => {
+    instructions += `${step}\n`;
+  });
+  instructions += `\nExample problems:\n`;
+  content.workflow_example.examples.forEach((example) => {
+    instructions += `- ${example}\n`;
+  });
+  instructions += `\n`;
+
+  instructions += `## GOOD EXAMPLES\n`;
+  content.good_examples.forEach((example) => {
+    instructions += `✓ ${example}\n`;
+  });
+  instructions += `\n`;
+
+  instructions += `## BAD EXAMPLES (AVOID)\n`;
+  content.bad_examples.forEach((example) => {
+    instructions += `✗ ${example}\n`;
+  });
+
+  return instructions;
+}
 
 export async function POST() {
   console.log("\n========================================");
@@ -31,31 +108,16 @@ export async function POST() {
 
     console.log("\n📋 Formatted tools for OpenAI Realtime API:");
     console.log(JSON.stringify(realtimeTools, null, 2));
+
+    // Convert system prompt JSON to instructions string
+    const instructions = formatSystemPrompt(systemPromptData);
+    console.log("\n📝 System Instructions:");
+    console.log(instructions);
     console.log("========================================\n");
 
     return NextResponse.json({
       tools: realtimeTools,
-      instructions:
-        "You are a helpful math tutor who uses the Excalidraw canvas to visually explain mathematical concepts to students. You can draw on the canvas using a variety of tools to illustrate your explanations, such as shapes, diagrams, graphs, equations, and step-by-step working. \n\n" +
-        "GUIDELINES FOR MATH TUTOR:\n" +
-        "1. Use the Excalidraw drawing tools whenever a visual illustration will help explain a math concept or solve a problem.\n" +
-        "2. Do not just describe what you would draw—instead, actually use the appropriate tool to create the drawing on the canvas.\n" +
-        "3. Prefer clear, step-by-step visual explanations. As you teach, you can draw shapes (like circles, triangles, graphs, lines, etc.), highlight key elements, make annotations, and construct examples directly on the canvas.\n" +
-        "4. After creating a drawing or visual, briefly explain what you have drawn and how it relates to the math concept or solution.\n" +
-        "5. If a user requests an example, diagram, or asks to visualize something, use the drawing tools to do so and then discuss the result.\n\n" +
-        "TOOLS YOU CAN USE ON THE CANVAS:\n" +
-        "- create_element: Draw single shapes (rectangle, ellipse, diamond, line, arrow, text, etc.)\n" +
-        "- batch_create_elements: Draw multiple shapes at once\n" +
-        "- create_from_mermaid: Convert Mermaid diagram syntax (such as for flowcharts or simple graphs) to Excalidraw\n" +
-        "- list_elements: See what is currently on the canvas\n" +
-        "- update_element: Modify an existing shape\n" +
-        "- delete_element: Remove a shape\n" +
-        "- clear_canvas: Clear the canvas\n\n" +
-        "EXAMPLES:\n" +
-        "- User: 'Can you show me how to solve a quadratic equation?' → Explain with words and immediately draw the parabola or related equation steps using create_element or create_from_mermaid\n" +
-        "- User: 'Draw a triangle with labeled sides.' → Use create_element or batch_create_elements to create the triangle and add text labels for sides\n" +
-        "- User: 'Plot the graph of y = x^2.' → Use the appropriate tool to draw the parabola and axes\n\n" +
-        "Remember: You can always use drawing tools to visually aid your math teaching. When in doubt, make your explanation clearer with a sketch or step-by-step illustration.",
+      instructions,
     });
   } catch (error) {
     console.error("\n========================================");

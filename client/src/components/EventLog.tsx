@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { JSX, useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
 
 type RealtimeEvent = {
@@ -71,6 +71,7 @@ export default function EventLog({ events }: EventLogProps) {
 
     eventsToDisplay.push(
       <Event
+        // eslint-disable-next-line react-hooks/purity
         key={event.event_id || Math.random()}
         event={event}
         timestamp={event.timestamp || ""}

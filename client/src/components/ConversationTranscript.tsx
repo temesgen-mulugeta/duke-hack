@@ -1,14 +1,14 @@
 "use client";
 
-import { ScrollArea } from "@radix-ui/react-scroll-area";
-import { useEffect, useState } from "react";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { useMemo, useEffect, useRef } from "react";
 
 type Message = {
   id: string;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "canvas";
   content: string;
   timestamp: string;
-  type: "audio" | "text";
+  type: "audio" | "text" | "canvas";
 };
 
 type RealtimeEvent = {
@@ -27,14 +27,23 @@ type RealtimeEvent = {
   [key: string]: unknown;
 };
 
+interface CanvasUpdate {
+  type: string;
+  description: string;
+  elementCount: number;
+  timestamp: string;
+}
+
 export default function ConversationTranscript({
   events,
+  canvasUpdates,
 }: {
   events: RealtimeEvent[];
+  canvasUpdates?: CanvasUpdate[];
 }) {
-  const [messages, setMessages] = useState<Message[]>([]);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
+  const messages = useMemo(() => {
     const newMessages: Message[] = [];
     let currentAssistantMessage: Message | null = null;
     const processedIds = new Set<string>();
@@ -153,8 +162,37 @@ export default function ConversationTranscript({
       newMessages.push(currentAssistantMessage);
     }
 
-    setMessages(newMessages);
-  }, [events]);
+    // Add canvas updates
+    if (canvasUpdates) {
+      for (const update of canvasUpdates) {
+        const canvasId = `canvas-${update.timestamp}`;
+        if (!processedIds.has(canvasId)) {
+          processedIds.add(canvasId);
+          newMessages.push({
+            id: canvasId,
+            role: "canvas",
+            content: update.description,
+            timestamp: new Date(update.timestamp).toLocaleTimeString(),
+            type: "canvas",
+          });
+        }
+      }
+    }
+
+    // Sort all messages by timestamp
+    newMessages.sort((a, b) => {
+      const timeA = new Date(a.timestamp).getTime();
+      const timeB = new Date(b.timestamp).getTime();
+      return timeA - timeB;
+    });
+
+    return newMessages;
+  }, [events, canvasUpdates]);
+
+  // Auto-scroll to bottom when new messages arrive
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
 
   if (messages.length === 0) {
     return (
@@ -165,28 +203,42 @@ export default function ConversationTranscript({
   }
 
   return (
-    <div className="space-y-4">
-      <ScrollArea className="h-[calc(100vh-100px)]">
+    <ScrollArea className="h-full w-full max-h-[900px]">
+      <div className="space-y-3 p-4">
         {messages.map((message) => (
           <div
             key={message.id}
             className={`flex ${
-              message.role === "user" ? "justify-end" : "justify-start"
+              message.role === "canvas"
+                ? "justify-center"
+                : message.role === "user"
+                ? "justify-end"
+                : "justify-start"
             }`}
           >
             <div
               className={`max-w-[80%] rounded-lg px-4 py-2 ${
-                message.role === "user"
+                message.role === "canvas"
+                  ? "bg-blue-50 text-blue-900 border border-blue-200"
+                  : message.role === "user"
                   ? "bg-emerald-600 text-white"
                   : "bg-gray-100 text-gray-900"
               }`}
             >
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-xs font-semibold">
-                  {message.role === "user" ? "You" : "AI"}
+                  {message.role === "canvas"
+                    ? "Canvas Action"
+                    : message.role === "user"
+                    ? "You"
+                    : "AI"}
                 </span>
                 <span className="text-xs opacity-70">
-                  {message.type === "audio" ? "🎤" : "💬"}
+                  {message.type === "canvas"
+                    ? "🎨"
+                    : message.type === "audio"
+                    ? "🎤"
+                    : "💬"}
                 </span>
                 <span className="text-xs opacity-70">{message.timestamp}</span>
               </div>
@@ -196,7 +248,9 @@ export default function ConversationTranscript({
             </div>
           </div>
         ))}
-      </ScrollArea>
-    </div>
+        {/* Invisible div to scroll to */}
+        <div ref={messagesEndRef} />
+      </div>
+    </ScrollArea>
   );
 }

@@ -33,7 +33,20 @@ type RealtimeEvent = {
   [key: string]: unknown;
 };
 
-export default function RealtimePanel() {
+interface CanvasUpdate {
+  type: string;
+  description: string;
+  elementCount: number;
+  timestamp: string;
+}
+
+interface RealtimePanelProps {
+  canvasUpdates?: CanvasUpdate[];
+}
+
+export default function RealtimePanel({
+  canvasUpdates = [],
+}: RealtimePanelProps) {
   const [isSessionActive, setIsSessionActive] = useState(false);
   const [events, setEvents] = useState<RealtimeEvent[]>([]);
   const [dataChannel, setDataChannel] = useState<RTCDataChannel | null>(null);
@@ -291,7 +304,7 @@ export default function RealtimePanel() {
       await pc.setLocalDescription(offer);
 
       const baseUrl = "https://api.openai.com/v1/realtime";
-      const model = "gpt-realtime-mini";
+      const model = "gpt-realtime";
       const sdpResponse = await fetch(`${baseUrl}?model=${model}`, {
         method: "POST",
         body: offer.sdp,
@@ -403,6 +416,13 @@ export default function RealtimePanel() {
 
     sendClientEvent(event);
     sendClientEvent({ type: "response.create" });
+  }
+
+  // Send canvas update to the model
+  function sendCanvasUpdateToLLM(update: CanvasUpdate) {
+    const message = `[Canvas Update] ${update.description}. Current canvas has ${update.elementCount} elements.`;
+    console.log("🎨 Sending canvas update to LLM:", message);
+    sendTextMessage(message);
   }
 
   // Handle function calls from the model
@@ -555,6 +575,27 @@ export default function RealtimePanel() {
       sendClientEvent({ type: "response.create" });
     }
   }
+
+  // Forward canvas updates to LLM when they arrive
+  useEffect(() => {
+    if (isSessionActive && canvasUpdates.length > 0) {
+      const latestUpdate = canvasUpdates[0];
+      // Only send if it's a new update (check timestamp)
+      const lastSentTimestamp = localStorage.getItem(
+        "lastCanvasUpdateTimestamp"
+      );
+
+      if (latestUpdate.timestamp !== lastSentTimestamp) {
+        console.log("🎨 New canvas update detected:", latestUpdate);
+        sendCanvasUpdateToLLM(latestUpdate);
+        localStorage.setItem(
+          "lastCanvasUpdateTimestamp",
+          latestUpdate.timestamp
+        );
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canvasUpdates, isSessionActive]);
 
   // Attach event listeners to the data channel when a new one is created
   useEffect(() => {
@@ -753,6 +794,21 @@ export default function RealtimePanel() {
             ⚙️ Executing: {executingTool}
           </div>
         )}
+
+        {/* Canvas Updates Indicator */}
+        {canvasUpdates.length > 0 && (
+          <div className="mt-2 text-xs text-gray-600">
+            <div className="flex items-center gap-1">
+              <span>🎨</span>
+              <span>Canvas updates: {canvasUpdates.length}</span>
+            </div>
+            {canvasUpdates[0] && (
+              <div className="mt-1 text-xs text-gray-500 truncate">
+                Latest: {canvasUpdates[0].description}
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Message Input */}
@@ -797,9 +853,12 @@ export default function RealtimePanel() {
 
           <TabsContent
             value="transcript"
-            className="flex-1 overflow-y-auto px-4 py-3 mt-0"
+            className="flex-1 overflow-hidden mt-0"
           >
-            <ConversationTranscript events={events} />
+            <ConversationTranscript
+              events={events}
+              canvasUpdates={canvasUpdates}
+            />
           </TabsContent>
 
           <TabsContent
