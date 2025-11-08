@@ -2,14 +2,14 @@ import React, { useState, useEffect, useRef } from "react";
 import {
   Excalidraw,
   convertToExcalidrawElements,
-  CaptureUpdateAction,
-  ExcalidrawImperativeAPI,
+  exportToBlob,
+  exportToSvg,
 } from "@excalidraw/excalidraw";
+import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types/excalidraw/types";
 import type {
   ExcalidrawElement,
-  NonDeleted,
   NonDeletedExcalidrawElement,
-} from "@excalidraw/excalidraw/types/element/types";
+} from "@excalidraw/excalidraw/types/excalidraw/element/types";
 import {
   convertMermaidToExcalidraw,
   DEFAULT_MERMAID_CONFIG,
@@ -291,7 +291,6 @@ function App(): JSX.Element {
               convertToExcalidrawElements(validatedElements);
             excalidrawAPI.updateScene({
               elements: convertedElements,
-              captureUpdate: CaptureUpdateAction.NEVER,
             });
           }
           break;
@@ -306,7 +305,6 @@ function App(): JSX.Element {
             ];
             excalidrawAPI.updateScene({
               elements: updatedElementsAfterCreate,
-              captureUpdate: CaptureUpdateAction.NEVER,
             });
           }
           break;
@@ -324,7 +322,6 @@ function App(): JSX.Element {
             );
             excalidrawAPI.updateScene({
               elements: updatedElements,
-              captureUpdate: CaptureUpdateAction.NEVER,
             });
           }
           break;
@@ -336,7 +333,6 @@ function App(): JSX.Element {
             );
             excalidrawAPI.updateScene({
               elements: filteredElements,
-              captureUpdate: CaptureUpdateAction.NEVER,
             });
           }
           break;
@@ -354,7 +350,6 @@ function App(): JSX.Element {
             ];
             excalidrawAPI.updateScene({
               elements: updatedElementsAfterBatch,
-              captureUpdate: CaptureUpdateAction.NEVER,
             });
           }
           break;
@@ -384,12 +379,11 @@ function App(): JSX.Element {
 
               if (result.elements && result.elements.length > 0) {
                 const convertedElements = convertToExcalidrawElements(
-                  result.elements,
+                  result.elements as any,
                   { regenerateIds: false }
                 );
                 excalidrawAPI.updateScene({
                   elements: convertedElements,
-                  captureUpdate: CaptureUpdateAction.IMMEDIATELY,
                 });
 
                 if (result.files) {
@@ -412,6 +406,14 @@ function App(): JSX.Element {
               );
             }
           }
+          break;
+
+        case "screenshot_request":
+          console.log(
+            "Received screenshot request from MCP:",
+            (data as any).requestId
+          );
+          await handleScreenshotRequest(data);
           break;
 
         default:
@@ -505,6 +507,101 @@ function App(): JSX.Element {
       websocketRef.current.send(JSON.stringify(message));
       console.log("📤 Sent canvas update via WebSocket:", description);
     }
+  };
+
+  // Handle screenshot request from MCP
+  const handleScreenshotRequest = async (data: any) => {
+    if (!excalidrawAPI) {
+      console.error("Excalidraw API not available for screenshot");
+      sendScreenshotResponse(
+        data.requestId,
+        false,
+        null,
+        "Excalidraw API not available"
+      );
+      return;
+    }
+
+    try {
+      const { requestId, format = "png", quality = 1 } = data;
+      console.log(`📸 Capturing screenshot: ${requestId}`, { format, quality });
+
+      let screenshotData: string;
+
+      if (format === "svg") {
+        // Export as SVG using the exportToSvg utility
+        const svg = await exportToSvg({
+          elements: excalidrawAPI.getSceneElements() as any,
+          appState: excalidrawAPI.getAppState(),
+          files: excalidrawAPI.getFiles(),
+        });
+
+        // Convert SVG to string
+        const svgString = new XMLSerializer().serializeToString(svg);
+        screenshotData = btoa(unescape(encodeURIComponent(svgString))); // Base64 encode
+      } else {
+        // Export as PNG (blob) using the exportToBlob utility
+        const blob = await exportToBlob({
+          elements: excalidrawAPI.getSceneElements() as any,
+          appState: excalidrawAPI.getAppState(),
+          files: excalidrawAPI.getFiles(),
+          mimeType: "image/png",
+        });
+
+        // Convert blob to base64
+        screenshotData = await blobToBase64(blob);
+      }
+
+      console.log(`✅ Screenshot captured successfully: ${requestId}`);
+      sendScreenshotResponse(requestId, true, screenshotData, null, format);
+    } catch (error) {
+      console.error("Error capturing screenshot:", error);
+      sendScreenshotResponse(
+        data.requestId,
+        false,
+        null,
+        (error as Error).message
+      );
+    }
+  };
+
+  // Send screenshot response via WebSocket
+  const sendScreenshotResponse = (
+    requestId: string,
+    success: boolean,
+    data: string | null,
+    error: string | null,
+    format?: string
+  ) => {
+    if (
+      websocketRef.current &&
+      websocketRef.current.readyState === WebSocket.OPEN
+    ) {
+      const message = {
+        type: "screenshot_response",
+        requestId,
+        success,
+        data,
+        error,
+        format,
+        timestamp: new Date().toISOString(),
+      };
+      websocketRef.current.send(JSON.stringify(message));
+      console.log("📤 Sent screenshot response:", requestId);
+    }
+  };
+
+  // Helper function to convert Blob to base64
+  const blobToBase64 = (blob: Blob): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const base64String = (reader.result as string).split(",")[1]; // Remove data:image/png;base64, prefix
+        resolve(base64String);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
   };
 
   // Handle canvas changes from user
@@ -633,7 +730,6 @@ function App(): JSX.Element {
         // Clear the frontend canvas
         excalidrawAPI.updateScene({
           elements: [],
-          captureUpdate: CaptureUpdateAction.IMMEDIATELY,
         });
 
         // Reset the flag after clearing
@@ -650,7 +746,6 @@ function App(): JSX.Element {
         isApplyingRemoteUpdateRef.current = true;
         excalidrawAPI.updateScene({
           elements: [],
-          captureUpdate: CaptureUpdateAction.IMMEDIATELY,
         });
 
         if (remoteUpdateTimeoutRef.current) {

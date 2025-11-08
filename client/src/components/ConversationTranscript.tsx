@@ -203,7 +203,7 @@ export default function ConversationTranscript({
   }
 
   return (
-    <ScrollArea className="h-full w-full max-h-[900px]">
+    <ScrollArea className="h-full w-full max-h-[700px]">
       <div className="space-y-3 p-4">
         {messages.map((message) => (
           <div

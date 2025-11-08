@@ -483,6 +483,26 @@ const tools: Tool[] = [
       },
       required: ['elements']
     }
+  },
+  {
+    name: 'capture_canvas_screenshot',
+    description: 'Capture a screenshot of the current Excalidraw canvas to see what the user has drawn',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        format: {
+          type: 'string',
+          enum: ['png', 'svg'],
+          description: 'Screenshot format (default: png)'
+        },
+        quality: {
+          type: 'number',
+          description: 'Image quality for PNG (0-1, default: 1)',
+          minimum: 0,
+          maximum: 1
+        }
+      }
+    }
   }
 ];
 
@@ -958,6 +978,56 @@ server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest)
             text: `${result.count} elements created successfully!\n\n${JSON.stringify(result, null, 2)}\n\n${result.syncedToCanvas ? '✅ All elements synced to canvas' : '⚠️  Canvas sync failed (elements still created locally)'}` 
           }]
         };
+      }
+      
+      case 'capture_canvas_screenshot': {
+        const params = z.object({
+          format: z.enum(['png', 'svg']).optional().default('png'),
+          quality: z.number().min(0).max(1).optional().default(1)
+        }).parse(args || {});
+        
+        logger.info('Capturing canvas screenshot', params);
+
+        try {
+          // Request screenshot from the frontend via HTTP API
+          const response = await fetch(`${EXPRESS_SERVER_URL}/api/canvas/screenshot`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(params)
+          });
+
+          if (!response.ok) {
+            throw new Error(`HTTP server error: ${response.status} ${response.statusText}`);
+          }
+
+          const result = await response.json() as any;
+          
+          if (!result.success) {
+            throw new Error(result.error || 'Failed to capture screenshot');
+          }
+
+          logger.info('Screenshot captured successfully', {
+            format: params.format,
+            hasData: !!result.data
+          });
+
+          // Return the screenshot as image data
+          return {
+            content: [
+              { 
+                type: 'text', 
+                text: `Screenshot captured successfully in ${params.format} format!` 
+              },
+              {
+                type: 'image',
+                data: result.data,
+                mimeType: params.format === 'png' ? 'image/png' : 'image/svg+xml'
+              }
+            ]
+          };
+        } catch (error) {
+          throw new Error(`Failed to capture screenshot: ${(error as Error).message}`);
+        }
       }
       
       default:

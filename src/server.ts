@@ -19,6 +19,8 @@ import {
   BatchCreatedMessage,
   SyncStatusMessage,
   InitialElementsMessage,
+  ScreenshotRequestMessage,
+  ScreenshotResponseMessage,
 } from "./types.js";
 import { z } from "zod";
 import WebSocket from "ws";
@@ -45,6 +47,9 @@ app.use(express.static(path.join(__dirname, "../dist/frontend")));
 
 // WebSocket connections
 const clients = new Set<WebSocket>();
+
+// Pending screenshot requests
+const pendingScreenshotRequests = new Map<string, Response>();
 
 // Broadcast to all connected clients
 function broadcast(message: WebSocketMessage): void {
@@ -86,6 +91,41 @@ wss.on("connection", (ws: WebSocket) => {
       if (message.type === "canvas_user_update") {
         logger.info("Canvas user update:", message.description);
         broadcast(message);
+      }
+
+      // Handle screenshot response from canvas
+      if (message.type === "screenshot_response") {
+        logger.info("Screenshot response received:", message.requestId);
+        const res = pendingScreenshotRequests.get(message.requestId);
+
+        if (res) {
+          // Clear timeout
+          const timeout = (res as any).screenshotTimeout;
+          if (timeout) clearTimeout(timeout);
+
+          // Remove from pending requests
+          pendingScreenshotRequests.delete(message.requestId);
+
+          // Send response
+          if (message.success && message.data) {
+            res.json({
+              success: true,
+              data: message.data,
+              format: message.format,
+              timestamp: new Date().toISOString(),
+            });
+          } else {
+            res.status(500).json({
+              success: false,
+              error: message.error || "Failed to capture screenshot",
+            });
+          }
+        } else {
+          logger.warn(
+            "No pending request found for screenshot:",
+            message.requestId
+          );
+        }
       }
     } catch (error) {
       logger.error("Error processing WebSocket message:", error);
@@ -591,6 +631,69 @@ app.get("/api/sync/status", (req: Request, res: Response) => {
     },
     websocketClients: clients.size,
   });
+});
+
+// Screenshot capture endpoint
+app.post("/api/canvas/screenshot", (req: Request, res: Response) => {
+  try {
+    const { format = "png", quality = 1 } = req.body;
+    const requestId = generateId();
+
+    logger.info(`Screenshot request received: ${requestId}`, {
+      format,
+      quality,
+      websocketClients: clients.size,
+    });
+
+    // Check if any WebSocket clients are connected
+    if (clients.size === 0) {
+      logger.warn("No WebSocket clients connected for screenshot request");
+      return res.status(503).json({
+        success: false,
+        error:
+          "No canvas clients connected. Please ensure the canvas is loaded at http://localhost:3000",
+      });
+    }
+
+    // Store the response object for this request
+    pendingScreenshotRequests.set(requestId, res);
+
+    // Broadcast screenshot request to frontend
+    const message: ScreenshotRequestMessage = {
+      type: "screenshot_request",
+      requestId,
+      format,
+      quality,
+      timestamp: new Date().toISOString(),
+    };
+
+    broadcast(message);
+    logger.info(
+      `Screenshot request broadcast to ${clients.size} client(s): ${requestId}`
+    );
+
+    // Set timeout for screenshot capture (30 seconds)
+    const timeout = setTimeout(() => {
+      if (pendingScreenshotRequests.has(requestId)) {
+        pendingScreenshotRequests.delete(requestId);
+        logger.warn(`Screenshot request timeout: ${requestId}`);
+        res.status(408).json({
+          success: false,
+          error: "Screenshot capture timeout - canvas may not be responding",
+        });
+      }
+    }, 30000);
+
+    // Store timeout reference
+    (res as any).screenshotTimeout = timeout;
+    (res as any).screenshotRequestId = requestId;
+  } catch (error) {
+    logger.error("Error handling screenshot request:", error);
+    res.status(500).json({
+      success: false,
+      error: (error as Error).message,
+    });
+  }
 });
 
 // Error handling middleware

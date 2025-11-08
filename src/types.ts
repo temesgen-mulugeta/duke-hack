@@ -176,7 +176,10 @@ export type WebSocketMessageType =
   | 'elements_batch_created'
   | 'elements_synced'
   | 'sync_status'
-  | 'mermaid_convert';
+  | 'mermaid_convert'
+  | 'screenshot_request'
+  | 'screenshot_response'
+  | 'canvas_user_update';
 
 export interface InitialElementsMessage extends WebSocketMessage {
   type: 'initial_elements';
@@ -213,6 +216,32 @@ export interface MermaidConvertMessage extends WebSocketMessage {
   type: 'mermaid_convert';
   mermaidDiagram: string;
   config?: MermaidConfig;
+  timestamp: string;
+}
+
+export interface ScreenshotRequestMessage extends WebSocketMessage {
+  type: 'screenshot_request';
+  requestId: string;
+  format?: 'png' | 'svg';
+  quality?: number;
+  timestamp: string;
+}
+
+export interface ScreenshotResponseMessage extends WebSocketMessage {
+  type: 'screenshot_response';
+  requestId: string;
+  success: boolean;
+  data?: string | null;
+  error?: string | null;
+  format?: string;
+  timestamp: string;
+}
+
+export interface CanvasUserUpdateMessage extends WebSocketMessage {
+  type: 'canvas_user_update';
+  description: string;
+  elementCount: number;
+  elements: ServerElement[];
   timestamp: string;
 }
 
