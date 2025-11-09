@@ -1,10 +1,21 @@
 import { NextResponse } from "next/server";
-import systemPromptData from "@/system-prompt.json";
+import circlePrompt from "@/prompts/circle.json";
+import rectanglePrompt from "@/prompts/rectangle.json";
+import trianglePrompt from "@/prompts/triangle.json";
 
 import { listExcalidrawTools } from "@/lib/mcp/excalidrawClient";
 
+// Map of available topics to their prompts
+const TOPIC_PROMPTS = {
+  circle: circlePrompt,
+  rectangle: rectanglePrompt,
+  triangle: trianglePrompt,
+} as const;
+
+type MathTopic = keyof typeof TOPIC_PROMPTS;
+
 // Convert system prompt JSON to readable instructions for Realtime API
-function formatSystemPrompt(promptData: typeof systemPromptData): string {
+function formatSystemPrompt(promptData: typeof circlePrompt): string {
   const content = promptData.content;
 
   let instructions = `${content.summary}\n\n`;
@@ -30,16 +41,32 @@ function formatSystemPrompt(promptData: typeof systemPromptData): string {
   content.behavior.realtime_start.forEach((action) => {
     instructions += `- ${action}\n`;
   });
-  instructions += `\nWhen user interrupts with a question:\n`;
-  content.behavior.interruptions.on_user_question.forEach((action) => {
-    instructions += `- ${action}\n`;
-  });
-  instructions += `\nWhen user draws on canvas:\n`;
-  content.behavior.canvas_user_input.on_unknown_user_drawing.forEach(
-    (action) => {
+
+  instructions += `\nInterruptions:\n`;
+  if (content.behavior.interruptions.on_user_says_stop) {
+    instructions += `When user says STOP:\n`;
+    content.behavior.interruptions.on_user_says_stop.forEach((action) => {
       instructions += `- ${action}\n`;
-    }
-  );
+    });
+  }
+  if (content.behavior.interruptions.on_user_question) {
+    instructions += `When user asks a question:\n`;
+    content.behavior.interruptions.on_user_question.forEach((action) => {
+      instructions += `- ${action}\n`;
+    });
+  }
+  if (content.behavior.interruptions.on_random_sounds) {
+    instructions += `When random sounds occur:\n`;
+    content.behavior.interruptions.on_random_sounds.forEach((action) => {
+      instructions += `- ${action}\n`;
+    });
+  }
+
+  instructions += `\nCanvas User Input:\n`;
+  if (content.behavior.canvas_user_input.disabled) {
+    instructions += `- DISABLED: ${content.behavior.canvas_user_input.reason}\n`;
+    instructions += `- Note: ${content.behavior.canvas_user_input.note}\n`;
+  }
   instructions += `\n`;
 
   instructions += `## AVAILABLE TOOLS\n`;
@@ -79,21 +106,70 @@ function formatSystemPrompt(promptData: typeof systemPromptData): string {
   return instructions;
 }
 
-export async function POST() {
+export async function POST(request: Request) {
   console.log("\n========================================");
   console.log("🔧 REALTIME SESSION SETUP");
   console.log("========================================");
 
   try {
+    // Parse request body to get selected topic
+    const body = await request.json();
+    const topic = (body.topic || "circle") as MathTopic;
+
+    // Validate topic
+    if (!TOPIC_PROMPTS[topic]) {
+      return NextResponse.json(
+        {
+          error: "Invalid topic",
+          detail: `Topic must be one of: ${Object.keys(TOPIC_PROMPTS).join(
+            ", "
+          )}`,
+        },
+        { status: 400 }
+      );
+    }
+
+    console.log(`📚 Selected topic: ${topic}`);
+
     console.log("📡 Fetching tools from MCP Excalidraw client...");
     const startTime = Date.now();
 
     // Just return the tools list - the WebRTC connection will be handled client-side
-    const tools = await listExcalidrawTools();
+    let tools;
+    try {
+      tools = await listExcalidrawTools();
+    } catch (mcpError) {
+      console.error("❌ Failed to list tools from MCP server:");
+      console.error(mcpError);
+
+      // Return error response
+      return NextResponse.json(
+        {
+          error: "MCP Server Connection Failed",
+          detail: `Could not connect to MCP server: ${
+            mcpError instanceof Error ? mcpError.message : String(mcpError)
+          }. Make sure the Express canvas server is running on port 3000.`,
+        },
+        { status: 503 }
+      );
+    }
 
     const duration = Date.now() - startTime;
     console.log(`⏱️ Tool fetch took ${duration}ms`);
     console.log(`✅ Retrieved ${tools.length} tools from MCP server`);
+
+    if (tools.length === 0) {
+      console.warn("⚠️ WARNING: No tools retrieved from MCP server!");
+      return NextResponse.json(
+        {
+          error: "No Tools Available",
+          detail:
+            "MCP server returned 0 tools. The AI won't be able to draw on canvas.",
+        },
+        { status: 500 }
+      );
+    }
+
     console.log("Available tools:", tools.map((t) => t.name).join(", "));
 
     const realtimeTools = tools.map((tool) => ({
@@ -109,15 +185,17 @@ export async function POST() {
     console.log("\n📋 Formatted tools for OpenAI Realtime API:");
     console.log(JSON.stringify(realtimeTools, null, 2));
 
-    // Convert system prompt JSON to instructions string
-    const instructions = formatSystemPrompt(systemPromptData);
-    console.log("\n📝 System Instructions:");
+    // Load topic-specific prompt and convert to instructions string
+    const promptData = TOPIC_PROMPTS[topic];
+    const instructions = formatSystemPrompt(promptData);
+    console.log("\n📝 System Instructions for", topic, ":");
     console.log(instructions);
     console.log("========================================\n");
 
     return NextResponse.json({
       tools: realtimeTools,
       instructions,
+      topic,
     });
   } catch (error) {
     console.error("\n========================================");

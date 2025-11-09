@@ -175,6 +175,7 @@ export type WebSocketMessageType =
   | 'element_deleted'
   | 'elements_batch_created'
   | 'elements_synced'
+  | 'elements_cleared'
   | 'sync_status'
   | 'mermaid_convert'
   | 'screenshot_request'
@@ -242,6 +243,12 @@ export interface CanvasUserUpdateMessage extends WebSocketMessage {
   description: string;
   elementCount: number;
   elements: ServerElement[];
+  timestamp: string;
+}
+
+export interface ElementsClearedMessage extends WebSocketMessage {
+  type: 'elements_cleared';
+  count: number;
   timestamp: string;
 }
 

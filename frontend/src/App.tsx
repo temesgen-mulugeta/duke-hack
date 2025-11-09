@@ -363,6 +363,23 @@ function App(): JSX.Element {
           console.log(`Server sync status: ${data.count} elements`);
           break;
 
+        case "elements_cleared":
+          console.log("Received clear all elements from server");
+          // Mark as remote update to prevent onChange notification
+          isApplyingRemoteUpdateRef.current = true;
+          excalidrawAPI.updateScene({
+            elements: [],
+          });
+          // Reset the flag after clearing
+          if (remoteUpdateTimeoutRef.current) {
+            clearTimeout(remoteUpdateTimeoutRef.current);
+          }
+          remoteUpdateTimeoutRef.current = setTimeout(() => {
+            isApplyingRemoteUpdateRef.current = false;
+            console.log("🔄 Canvas cleared by server, user changes will now be tracked");
+          }, 500);
+          break;
+
         case "mermaid_convert":
           console.log("Received Mermaid conversion request from MCP");
           if (data.mermaidDiagram) {

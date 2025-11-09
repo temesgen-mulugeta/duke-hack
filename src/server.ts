@@ -21,6 +21,7 @@ import {
   InitialElementsMessage,
   ScreenshotRequestMessage,
   ScreenshotResponseMessage,
+  ElementsClearedMessage,
 } from "./types.js";
 import { z } from "zod";
 import WebSocket from "ws";
@@ -346,6 +347,37 @@ app.delete("/api/elements/:id", (req: Request, res: Response) => {
     });
   } catch (error) {
     logger.error("Error deleting element:", error);
+    res.status(500).json({
+      success: false,
+      error: (error as Error).message,
+    });
+  }
+});
+
+// Clear all elements
+app.delete("/api/elements", (req: Request, res: Response) => {
+  try {
+    const count = elements.size;
+    logger.info(`Clearing all elements: ${count} elements`);
+
+    // Clear the in-memory storage
+    elements.clear();
+
+    // Broadcast to all connected clients to clear their canvas
+    const message: ElementsClearedMessage = {
+      type: "elements_cleared",
+      count: count,
+      timestamp: new Date().toISOString(),
+    };
+    broadcast(message);
+
+    res.json({
+      success: true,
+      message: `All ${count} elements cleared successfully`,
+      count: count,
+    });
+  } catch (error) {
+    logger.error("Error clearing all elements:", error);
     res.status(500).json({
       success: false,
       error: (error as Error).message,
