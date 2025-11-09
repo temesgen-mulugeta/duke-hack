@@ -21,8 +21,31 @@ export default function Home() {
   const [selectedTopic, setSelectedTopic] = useState<MathTopic | null>(null);
   const [isSessionActive, setIsSessionActive] = useState(false);
   const [isDebugOpen, setIsDebugOpen] = useState(false);
+  const [userMessage, setUserMessage] = useState("");
+  const [isCapturingScreenshot, setIsCapturingScreenshot] = useState(false);
+  const [elementCount, setElementCount] = useState<number>(0);
   const wsRef = useRef<WebSocket | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+
+  // Poll element count every 2 seconds
+  useEffect(() => {
+    const fetchElementCount = async () => {
+      try {
+        const response = await fetch(`${canvasUrl}/api/elements`);
+        const result = await response.json();
+        if (result.success) {
+          setElementCount(result.count);
+        }
+      } catch (error) {
+        console.error("Error fetching element count:", error);
+      }
+    };
+
+    fetchElementCount();
+    const interval = setInterval(fetchElementCount, 2000);
+
+    return () => clearInterval(interval);
+  }, [canvasUrl]);
 
   // Listen for postMessage events from canvas iframe
   useEffect(() => {
@@ -89,11 +112,99 @@ export default function Home() {
 
       if (result.success) {
         console.log(`✅ Canvas cleared - removed ${result.count} element(s)`);
+        console.log(
+          `📊 Server state: ${result.currentSize} elements, ${result.clientsNotified} clients notified`
+        );
+
+        // Wait for the WebSocket broadcast to propagate to all clients
+        await new Promise((resolve) => setTimeout(resolve, 800));
+
+        // Verify the clear worked by checking the server state
+        const verifyResponse = await fetch(`${canvasUrl}/api/elements`);
+        const verifyResult = await verifyResponse.json();
+
+        if (verifyResult.success && verifyResult.count === 0) {
+          console.log("✅ Verified: Canvas is empty");
+          return true;
+        } else {
+          console.warn(
+            `⚠️ Warning: Canvas still has ${verifyResult.count} elements after clear`
+          );
+          return verifyResult.count === 0;
+        }
       } else {
         console.error("❌ Failed to clear canvas:", result.error);
+        return false;
       }
     } catch (error) {
       console.error("❌ Error clearing canvas:", error);
+      return false;
+    }
+  };
+
+  // Write header to canvas
+  const writeHeaderToCanvas = async (topic: MathTopic) => {
+    try {
+      console.log("✍️ Writing header to canvas...");
+
+      const headers = {
+        circle: {
+          title: "Circle Quest",
+          emoji: "🔵",
+          subtitle: "Discover radius, diameter, and magical π tricks",
+        },
+        rectangle: {
+          title: "Rectangle Lab",
+          emoji: "📐",
+          subtitle: "Master area secrets with sides and angles",
+        },
+        triangle: {
+          title: "Triangle Trail",
+          emoji: "🔺",
+          subtitle: "Explore base-height adventures and shortcuts",
+        },
+      };
+
+      const header = headers[topic];
+
+      // Create title element (large text)
+      const titleResponse = await fetch(`${canvasUrl}/api/elements`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "text",
+          x: 50,
+          y: 30,
+          text: `${header.emoji} ${header.title}`,
+          fontSize: 48,
+          strokeColor: "#1e40af", // blue-800
+        }),
+      });
+
+      // Create subtitle element (smaller text)
+      const subtitleResponse = await fetch(`${canvasUrl}/api/elements`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          type: "text",
+          x: 50,
+          y: 100,
+          text: header.subtitle,
+          fontSize: 20,
+          strokeColor: "#6b7280", // gray-500
+        }),
+      });
+
+      const titleResult = await titleResponse.json();
+      const subtitleResult = await subtitleResponse.json();
+
+      if (titleResult.success && subtitleResult.success) {
+        console.log("✅ Header written to canvas successfully");
+      } else {
+        console.error("❌ Failed to write header to canvas");
+      }
+    } catch (error) {
+      console.error("❌ Error writing header to canvas:", error);
     }
   };
 
@@ -108,8 +219,16 @@ export default function Home() {
       setIsSessionActive(false);
     }
 
-    // Clear the canvas
-    await clearCanvas();
+    // Clear the canvas and wait for it to complete
+    const cleared = await clearCanvas();
+
+    // Only write header if canvas was successfully cleared
+    if (cleared) {
+      // Write header to canvas
+      await writeHeaderToCanvas(topic);
+    } else {
+      console.error("❌ Skipping header write - canvas clear failed");
+    }
 
     // Set the new topic
     setSelectedTopic(topic);
@@ -129,6 +248,43 @@ export default function Home() {
     setIsSessionActive(false);
   };
 
+  // Handle screenshot capture
+  const handleCaptureScreenshot = async () => {
+    try {
+      setIsCapturingScreenshot(true);
+      console.log("📸 Capturing screenshot...");
+
+      const response = await fetch(`${canvasUrl}/api/canvas/screenshot`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          format: "png",
+          quality: 1,
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        console.log("✅ Screenshot captured successfully!");
+
+        // Download the screenshot
+        const link = document.createElement("a");
+        link.href = `data:image/png;base64,${result.data}`;
+        link.download = `canvas-screenshot-${Date.now()}.png`;
+        link.click();
+      } else {
+        console.error("❌ Failed to capture screenshot:", result.error);
+        alert(`Failed to capture screenshot: ${result.error}`);
+      }
+    } catch (error) {
+      console.error("❌ Error capturing screenshot:", error);
+      alert("Failed to capture screenshot. Please try again.");
+    } finally {
+      setIsCapturingScreenshot(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 flex bg-linear-to-br from-blue-50 via-purple-50 to-pink-50">
       {/* Left Sidebar: Topic Menu */}
@@ -140,7 +296,7 @@ export default function Home() {
       {/* Main Canvas Area */}
       <div className="flex-1 flex flex-col relative  bg-linear-to-br from-amber-50 via-rose-50 to-sky-50 shadow-[0_25px_55px_rgba(248,181,77,0.35)]">
         {/* Canvas Header */}
-        {selectedTopic && (
+        {/* {selectedTopic && (
           <div className="h-20 bg-linear-to-r from-blue-500 via-purple-500 to-pink-500 shadow-lg px-6 flex items-center justify-between">
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-3">
@@ -178,7 +334,7 @@ export default function Home() {
               Open in New Tab ↗
             </a>
           </div>
-        )}
+        )} */}
 
         {/* Canvas Iframe */}
         <div className="flex-1 overflow-hidden p-2 ">
@@ -191,14 +347,80 @@ export default function Home() {
           />
         </div>
 
-        {/* Start Learning Button (appears when topic is selected) */}
+        {/* Control Panel (appears when topic is selected) */}
         {selectedTopic && (
-          <StartLearningButton
-            topic={selectedTopic}
-            isSessionActive={isSessionActive}
-            onStart={handleStartLearning}
-            onStop={handleStopLearning}
-          />
+          <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50 flex items-center gap-3">
+            {/* Clear Canvas Button */}
+            <button
+              onClick={async () => {
+                await clearCanvas();
+                await writeHeaderToCanvas(selectedTopic);
+              }}
+              className="px-6 py-4 rounded-full 
+                bg-linear-to-r from-orange-500 to-orange-700 hover:from-orange-600 hover:to-orange-800
+                text-white text-base font-bold 
+                shadow-xl hover:shadow-2xl
+                transition-all duration-300 
+                hover:scale-105
+                border-3 border-white
+                flex items-center gap-2"
+              title="Clear canvas and redraw header"
+            >
+              <span className="text-xl">🧹</span>
+              <span>Clear</span>
+            </button>
+
+            {/* Text Input Field */}
+            <input
+              type="text"
+              value={userMessage}
+              onChange={(e) => setUserMessage(e.target.value)}
+              placeholder="Type your question or message..."
+              className="px-6 py-4 rounded-full 
+                bg-white shadow-xl
+                text-gray-800 text-base
+                border-3 border-gray-200
+                focus:outline-none focus:ring-4 focus:ring-blue-300
+                transition-all duration-300
+                w-96"
+            />
+
+            {/* Screenshot Button */}
+            <button
+              onClick={handleCaptureScreenshot}
+              disabled={isCapturingScreenshot}
+              className="px-6 py-4 rounded-full 
+                bg-linear-to-r from-green-500 to-green-700 hover:from-green-600 hover:to-green-800
+                text-white text-base font-bold 
+                shadow-xl hover:shadow-2xl
+                transition-all duration-300 
+                hover:scale-105
+                border-3 border-white
+                flex items-center gap-2
+                disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Capture canvas screenshot"
+            >
+              {isCapturingScreenshot ? (
+                <>
+                  <span className="animate-spin">⏳</span>
+                  <span>Capturing...</span>
+                </>
+              ) : (
+                <>
+                  <span className="text-xl">📸</span>
+                  <span>Screenshot</span>
+                </>
+              )}
+            </button>
+
+            {/* Start/Stop Learning Button */}
+            <StartLearningButton
+              topic={selectedTopic}
+              isSessionActive={isSessionActive}
+              onStart={handleStartLearning}
+              onStop={handleStopLearning}
+            />
+          </div>
         )}
 
         {/* Debug Button (bottom-right) */}

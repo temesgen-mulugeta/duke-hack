@@ -358,10 +358,12 @@ app.delete("/api/elements/:id", (req: Request, res: Response) => {
 app.delete("/api/elements", (req: Request, res: Response) => {
   try {
     const count = elements.size;
-    logger.info(`Clearing all elements: ${count} elements`);
+    logger.info(`🧹 Clearing all elements: ${count} elements`);
+    logger.info(`📡 Connected WebSocket clients: ${clients.size}`);
 
     // Clear the in-memory storage
     elements.clear();
+    logger.info(`✅ In-memory storage cleared. New size: ${elements.size}`);
 
     // Broadcast to all connected clients to clear their canvas
     const message: ElementsClearedMessage = {
@@ -369,12 +371,23 @@ app.delete("/api/elements", (req: Request, res: Response) => {
       count: count,
       timestamp: new Date().toISOString(),
     };
+
+    logger.info(`📤 Broadcasting clear message to ${clients.size} client(s)`);
     broadcast(message);
+
+    // Verify the storage is actually empty
+    if (elements.size !== 0) {
+      logger.error(
+        `⚠️ Warning: Elements storage is not empty after clear! Size: ${elements.size}`
+      );
+    }
 
     res.json({
       success: true,
       message: `All ${count} elements cleared successfully`,
       count: count,
+      currentSize: elements.size,
+      clientsNotified: clients.size,
     });
   } catch (error) {
     logger.error("Error clearing all elements:", error);
@@ -648,6 +661,24 @@ app.get("/health", (req: Request, res: Response) => {
     timestamp: new Date().toISOString(),
     elements_count: elements.size,
     websocket_clients: clients.size,
+  });
+});
+
+// Debug endpoint - get detailed element info
+app.get("/api/debug/elements", (req: Request, res: Response) => {
+  const elementsArray = Array.from(elements.values());
+  res.json({
+    success: true,
+    count: elements.size,
+    elements: elementsArray,
+    summary: elementsArray.map((el) => ({
+      id: el.id,
+      type: el.type,
+      text: el.text || "",
+      x: el.x,
+      y: el.y,
+      createdAt: el.createdAt,
+    })),
   });
 });
 
