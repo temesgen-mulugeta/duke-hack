@@ -678,6 +678,7 @@ app.get("/api/debug/elements", (req: Request, res: Response) => {
       x: el.x,
       y: el.y,
       createdAt: el.createdAt,
+      fontFamily: "5",
     })),
   });
 });

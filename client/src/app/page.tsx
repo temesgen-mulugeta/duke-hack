@@ -5,6 +5,7 @@ import TopicMenu, { MathTopic } from "@/components/TopicMenu";
 import StartLearningButton from "@/components/StartLearningButton";
 import RealtimeDebugDialog from "@/components/RealtimeDebugDialog";
 import SessionController from "@/components/SessionController";
+import ChatSidebar from "@/components/ChatSidebar";
 
 interface CanvasUpdate {
   type: string;
@@ -21,31 +22,8 @@ export default function Home() {
   const [selectedTopic, setSelectedTopic] = useState<MathTopic | null>(null);
   const [isSessionActive, setIsSessionActive] = useState(false);
   const [isDebugOpen, setIsDebugOpen] = useState(false);
-  const [userMessage, setUserMessage] = useState("");
-  const [isCapturingScreenshot, setIsCapturingScreenshot] = useState(false);
-  const [elementCount, setElementCount] = useState<number>(0);
   const wsRef = useRef<WebSocket | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
-
-  // Poll element count every 2 seconds
-  useEffect(() => {
-    const fetchElementCount = async () => {
-      try {
-        const response = await fetch(`${canvasUrl}/api/elements`);
-        const result = await response.json();
-        if (result.success) {
-          setElementCount(result.count);
-        }
-      } catch (error) {
-        console.error("Error fetching element count:", error);
-      }
-    };
-
-    fetchElementCount();
-    const interval = setInterval(fetchElementCount, 2000);
-
-    return () => clearInterval(interval);
-  }, [canvasUrl]);
 
   // Listen for postMessage events from canvas iframe
   useEffect(() => {
@@ -173,8 +151,8 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type: "text",
-          x: 50,
-          y: 30,
+          x: 600, // right top corner (assuming 800px width canvas, 50px padding)
+          y: 100,
           text: `${header.emoji} ${header.title}`,
           fontSize: 48,
           strokeColor: "#1e40af", // blue-800
@@ -187,8 +165,8 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           type: "text",
-          x: 50,
-          y: 100,
+          x: 600,
+          y: 170,
           text: header.subtitle,
           fontSize: 20,
           strokeColor: "#6b7280", // gray-500
@@ -246,43 +224,6 @@ export default function Home() {
   const handleStopLearning = () => {
     console.log("⏹️ Stopping learning session");
     setIsSessionActive(false);
-  };
-
-  // Handle screenshot capture
-  const handleCaptureScreenshot = async () => {
-    try {
-      setIsCapturingScreenshot(true);
-      console.log("📸 Capturing screenshot...");
-
-      const response = await fetch(`${canvasUrl}/api/canvas/screenshot`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          format: "png",
-          quality: 1,
-        }),
-      });
-
-      const result = await response.json();
-
-      if (result.success) {
-        console.log("✅ Screenshot captured successfully!");
-
-        // Download the screenshot
-        const link = document.createElement("a");
-        link.href = `data:image/png;base64,${result.data}`;
-        link.download = `canvas-screenshot-${Date.now()}.png`;
-        link.click();
-      } else {
-        console.error("❌ Failed to capture screenshot:", result.error);
-        alert(`Failed to capture screenshot: ${result.error}`);
-      }
-    } catch (error) {
-      console.error("❌ Error capturing screenshot:", error);
-      alert("Failed to capture screenshot. Please try again.");
-    } finally {
-      setIsCapturingScreenshot(false);
-    }
   };
 
   return (
@@ -370,49 +311,6 @@ export default function Home() {
               <span>Clear</span>
             </button>
 
-            {/* Text Input Field */}
-            <input
-              type="text"
-              value={userMessage}
-              onChange={(e) => setUserMessage(e.target.value)}
-              placeholder="Type your question or message..."
-              className="px-6 py-4 rounded-full 
-                bg-white shadow-xl
-                text-gray-800 text-base
-                border-3 border-gray-200
-                focus:outline-none focus:ring-4 focus:ring-blue-300
-                transition-all duration-300
-                w-96"
-            />
-
-            {/* Screenshot Button */}
-            <button
-              onClick={handleCaptureScreenshot}
-              disabled={isCapturingScreenshot}
-              className="px-6 py-4 rounded-full 
-                bg-linear-to-r from-green-500 to-green-700 hover:from-green-600 hover:to-green-800
-                text-white text-base font-bold 
-                shadow-xl hover:shadow-2xl
-                transition-all duration-300 
-                hover:scale-105
-                border-3 border-white
-                flex items-center gap-2
-                disabled:opacity-50 disabled:cursor-not-allowed"
-              title="Capture canvas screenshot"
-            >
-              {isCapturingScreenshot ? (
-                <>
-                  <span className="animate-spin">⏳</span>
-                  <span>Capturing...</span>
-                </>
-              ) : (
-                <>
-                  <span className="text-xl">📸</span>
-                  <span>Screenshot</span>
-                </>
-              )}
-            </button>
-
             {/* Start/Stop Learning Button */}
             <StartLearningButton
               topic={selectedTopic}
@@ -454,6 +352,12 @@ export default function Home() {
         isOpen={isDebugOpen}
         onClose={() => setIsDebugOpen(false)}
         canvasUpdates={canvasUpdates}
+      />
+
+      {/* Chat Sidebar - collapsible chat on the right */}
+      <ChatSidebar
+        canvasUpdates={canvasUpdates}
+        isSessionActive={isSessionActive}
       />
     </div>
   );

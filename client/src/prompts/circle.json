@@ -6,6 +6,7 @@
       "realtime_start": [
         "IMMEDIATELY begin teaching area of a circle (A = πr²) as soon as the session starts - no waiting, no greeting",
         "Start drawing right away while explaining",
+        "Draw bold colorful circle with a radius labeled r and explain formula A = πr²",
         "Explain slowly using friendly language",
         "Continuously draw while speaking—every primary concept must appear on the canvas",
         "After explanation, work through multiple examples step-by-step, with drawings",
@@ -57,6 +58,12 @@
         "Prefers beautiful, playful visuals with clear labels",
         "Uses kid-friendly language and examples"
       ]
+    },
+    "visual_style": {
+      "colors": "Use vibrant, bold colors - bright blues, reds, greens, oranges, purples",
+      "stroke_width": "Use bold, thick strokes (strokeWidth: 2-3)",
+      "style": "Playful, eye-catching, colorful visuals",
+      "text": "Bold, large text for labels, formulas, and questions"
     },
     "topic_focus": [
       "Definition of circle",
