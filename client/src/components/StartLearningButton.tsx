@@ -1,5 +1,6 @@
 "use client";
 
+import { CirclePlay, Square } from "lucide-react";
 import { MathTopic } from "./TopicMenu";
 
 interface StartLearningButtonProps {
@@ -9,72 +10,54 @@ interface StartLearningButtonProps {
   onStop: () => void;
 }
 
+const topicStyles: Record<
+  MathTopic,
+  { gradient: string; glow: string; label: string }
+> = {
+  circle: {
+    gradient: "from-sky-500 via-blue-500 to-emerald-500",
+    glow: "shadow-[0_18px_45px_rgba(56,189,248,0.35)]",
+    label: "Start Circle Quest",
+  },
+  rectangle: {
+    gradient: "from-violet-500 via-indigo-500 to-fuchsia-500",
+    glow: "shadow-[0_18px_45px_rgba(139,92,246,0.35)]",
+    label: "Start Rectangle Lab",
+  },
+  triangle: {
+    gradient: "from-rose-500 via-orange-500 to-amber-500",
+    glow: "shadow-[0_18px_45px_rgba(244,114,182,0.35)]",
+    label: "Start Triangle Trail",
+  },
+};
+
 export default function StartLearningButton({
   topic,
   isSessionActive,
   onStart,
   onStop,
 }: StartLearningButtonProps) {
-  const topicNames = {
-    circle: "Circle",
-    rectangle: "Rectangle",
-    triangle: "Triangle",
-  };
-
-  const topicEmojis = {
-    circle: "🔵",
-    rectangle: "📐",
-    triangle: "🔺",
-  };
-
-  const topicColors = {
-    circle: "from-blue-500 to-blue-700 hover:from-blue-600 hover:to-blue-800",
-    rectangle:
-      "from-purple-500 to-purple-700 hover:from-purple-600 hover:to-purple-800",
-    triangle: "from-pink-500 to-pink-700 hover:from-pink-600 hover:to-pink-800",
-  };
-
   if (isSessionActive) {
     return (
       <button
         onClick={onStop}
-        className="px-6 py-4 rounded-full 
-          bg-linear-to-r from-red-500 to-red-700 hover:from-red-600 hover:to-red-800
-          text-white text-base font-bold 
-          shadow-xl hover:shadow-2xl
-          transition-all duration-300 
-          hover:scale-105
-          animate-pulse
-          border-3 border-white
-          flex items-center gap-2"
+        className="inline-flex items-center gap-2 rounded-full border border-white/60 bg-linear-to-r from-rose-500 via-red-500 to-amber-500 px-5 py-2.5 text-xs font-black uppercase tracking-[0.2em] text-white shadow-[0_18px_45px_rgba(244,63,94,0.35)] transition hover:-translate-y-0.5 hover:shadow-[0_22px_55px_rgba(244,63,94,0.45)]"
       >
-        <span className="text-xl">⏹️</span>
-        <span>Stop</span>
+        <Square className="h-4 w-4" />
+        Stop Session
       </button>
     );
   }
 
+  const style = topicStyles[topic];
+
   return (
     <button
       onClick={onStart}
-      className={`px-6 py-4 rounded-full 
-        bg-linear-to-r ${topicColors[topic]}
-        text-white text-base font-bold 
-        shadow-xl hover:shadow-2xl
-        transition-all duration-300 
-        hover:scale-105
-        border-3 border-white
-        flex items-center gap-2
-        group
-      `}
+      className={`inline-flex items-center gap-2.5 rounded-full border border-white/60 bg-linear-to-r ${style.gradient} px-5 py-2.5 text-xs font-black uppercase tracking-[0.2em] text-white transition hover:-translate-y-0.5 hover:shadow-[0_22px_55px_rgba(56,189,248,0.5)] ${style.glow}`}
     >
-      <span className="text-xl group-hover:rotate-12 transition-transform duration-300">
-        {topicEmojis[topic]}
-      </span>
-      <span>Start Learning</span>
-      <span className="text-xl group-hover:scale-125 transition-transform duration-300">
-        🚀
-      </span>
+      <CirclePlay className="h-4 w-4" />
+      {style.label}
     </button>
   );
 }

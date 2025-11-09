@@ -2,10 +2,11 @@
 
 import { useEffect, useState, useRef } from "react";
 import TopicMenu, { MathTopic } from "@/components/TopicMenu";
-import StartLearningButton from "@/components/StartLearningButton";
 import RealtimeDebugDialog from "@/components/RealtimeDebugDialog";
 import SessionController from "@/components/SessionController";
 import ChatSidebar from "@/components/ChatSidebar";
+import TopicHighlightCard from "@/components/TopicHighlightCard";
+import LearningControlDock from "@/components/LearningControlDock";
 
 interface CanvasUpdate {
   type: string;
@@ -226,120 +227,81 @@ export default function Home() {
     setIsSessionActive(false);
   };
 
-  return (
-    <div className="fixed inset-0 flex bg-linear-to-br from-blue-50 via-purple-50 to-pink-50">
-      {/* Left Sidebar: Topic Menu */}
-      <TopicMenu
-        selectedTopic={selectedTopic}
-        onTopicSelect={handleTopicSelect}
-      />
+  const handleRefreshTopic = async () => {
+    if (!selectedTopic) return;
+    await clearCanvas();
+    await writeHeaderToCanvas(selectedTopic);
+  };
 
-      {/* Main Canvas Area */}
-      <div className="flex-1 flex flex-col relative  bg-linear-to-br from-amber-50 via-rose-50 to-sky-50 shadow-[0_25px_55px_rgba(248,181,77,0.35)]">
-        {/* Canvas Header */}
-        {/* {selectedTopic && (
-          <div className="h-20 bg-linear-to-r from-blue-500 via-purple-500 to-pink-500 shadow-lg px-6 flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-3">
-                <span className="text-4xl">
-                  {selectedTopic === "circle"
-                    ? "🔵"
-                    : selectedTopic === "rectangle"
-                    ? "📐"
-                    : "🔺"}
-                </span>
-                <div>
-                  <h2 className="text-2xl font-bold text-white drop-shadow-lg">
-                    {selectedTopic === "circle"
-                      ? "Circle Quest"
-                      : selectedTopic === "rectangle"
-                      ? "Rectangle Lab"
-                      : "Triangle Trail"}
-                  </h2>
-                  <p className="text-sm text-white/90 font-medium">
-                    {selectedTopic === "circle"
-                      ? "Discover radius, diameter, and magical π tricks"
-                      : selectedTopic === "rectangle"
-                      ? "Master area secrets with sides and angles"
-                      : "Explore base-height adventures and shortcuts"}
-                  </p>
+  return (
+    <div className="relative flex h-screen w-screen overflow-hidden bg-linear-to-br from-sky-50 via-violet-50 to-rose-50">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.65),transparent_65%)]" />
+      <div className="pointer-events-none absolute -left-32 top-24 h-72 w-72 rounded-full bg-linear-to-br from-sky-200/65 to-violet-200/60 blur-3xl" />
+      <div className="pointer-events-none absolute -right-40 bottom-16 h-80 w-80 rounded-full bg-linear-to-br from-pink-200/70 to-amber-200/60 blur-3xl" />
+
+      <div className="relative z-10 flex h-full w-full">
+        <TopicMenu
+          selectedTopic={selectedTopic}
+          onTopicSelect={handleTopicSelect}
+        />
+
+        <main className="relative flex min-w-0 flex-1 px-6 py-6">
+          <div className="relative flex-1 overflow-hidden rounded-[40px] border border-white/60 bg-white/45 shadow-[0_35px_80px_rgba(79,70,229,0.12)] backdrop-blur-xl">
+            <iframe
+              ref={iframeRef}
+              src={canvasUrl}
+              className="absolute inset-0 h-full w-full"
+              style={{ border: "none" }}
+              title="Excalidraw canvas"
+            />
+            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(255,255,255,0.55),transparent_70%)]" />
+
+            <div className="pointer-events-none absolute inset-0">
+              <div className="flex items-center justify-between px-8 pt-6">
+                <div className="pointer-events-auto inline-flex items-center gap-2 rounded-full border border-white/60 bg-white/85 px-4 py-1.5 text-[10px] font-semibold uppercase tracking-[0.26em] text-slate-500 shadow">
+                  {isSessionActive ? "Session Active" : "Awaiting Session"}
+                </div>
+                <button
+                  onClick={() => setIsDebugOpen(true)}
+                  className="pointer-events-auto inline-flex items-center gap-2 rounded-full border border-white/60 bg-white/85 px-4 py-1.5 text-[10px] font-semibold uppercase tracking-[0.26em] text-slate-600 shadow transition hover:-translate-y-0.5 hover:shadow-md"
+                  title="Open realtime debug console"
+                >
+                  Diagnostics
+                </button>
+              </div>
+
+              {/* <div className="mt-6 flex justify-center px-6">
+                <div className="pointer-events-auto w-full max-w-xl">
+                  <TopicHighlightCard
+                    topic={selectedTopic}
+                    canvasUrl={canvasUrl}
+                    variant="overlay"
+                  />
+                </div>
+              </div> */}
+
+              <div className="pointer-events-auto absolute bottom-8 left-0 right-0 flex justify-center px-6">
+                <div className="w-full max-w-2xl">
+                  <LearningControlDock
+                    selectedTopic={selectedTopic}
+                    isSessionActive={isSessionActive}
+                    onClearTopic={handleRefreshTopic}
+                    onStart={handleStartLearning}
+                    onStop={handleStopLearning}
+                    compact
+                  />
                 </div>
               </div>
             </div>
-            <a
-              href={canvasUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-4 py-2 bg-white/20 backdrop-blur-sm hover:bg-white/30 transition-all text-white text-sm font-semibold rounded-full border-2 border-white/30"
-            >
-              Open in New Tab ↗
-            </a>
           </div>
-        )} */}
+        </main>
 
-        {/* Canvas Iframe */}
-        <div className="flex-1 overflow-hidden p-2 ">
-          <iframe
-            ref={iframeRef}
-            src={canvasUrl}
-            className="w-full h-full "
-            style={{ border: "none", borderRadius: "10px" }}
-            title="Excalidraw canvas"
-          />
-        </div>
-
-        {/* Control Panel (appears when topic is selected) */}
-        {selectedTopic && (
-          <div className="fixed bottom-6 left-1/2 transform -translate-x-1/2 z-50 flex items-center gap-3">
-            {/* Clear Canvas Button */}
-            <button
-              onClick={async () => {
-                await clearCanvas();
-                await writeHeaderToCanvas(selectedTopic);
-              }}
-              className="px-6 py-4 rounded-full 
-                bg-linear-to-r from-orange-500 to-orange-700 hover:from-orange-600 hover:to-orange-800
-                text-white text-base font-bold 
-                shadow-xl hover:shadow-2xl
-                transition-all duration-300 
-                hover:scale-105
-                border-3 border-white
-                flex items-center gap-2"
-              title="Clear canvas and redraw header"
-            >
-              <span className="text-xl">🧹</span>
-              <span>Clear</span>
-            </button>
-
-            {/* Start/Stop Learning Button */}
-            <StartLearningButton
-              topic={selectedTopic}
-              isSessionActive={isSessionActive}
-              onStart={handleStartLearning}
-              onStop={handleStopLearning}
-            />
-          </div>
-        )}
-
-        {/* Debug Button (bottom-right) */}
-        <button
-          onClick={() => setIsDebugOpen(true)}
-          className="fixed bottom-8 right-8 z-40 
-            w-16 h-16 rounded-full 
-            bg-linear-to-br from-gray-700 to-gray-900 hover:from-gray-600 hover:to-gray-800
-            text-white text-2xl
-            shadow-2xl hover:shadow-3xl
-            transition-all duration-300 
-            hover:scale-110
-            border-4 border-white
-            flex items-center justify-center"
-          title="Open Debug Console"
-        >
-          🐛
-        </button>
+        <ChatSidebar
+          canvasUpdates={canvasUpdates}
+          isSessionActive={isSessionActive}
+        />
       </div>
 
-      {/* Session Controller - manages the realtime session (hidden) */}
       <SessionController
         topic={selectedTopic || "circle"}
         canvasUpdates={canvasUpdates}
@@ -347,17 +309,10 @@ export default function Home() {
         onSessionStateChange={setIsSessionActive}
       />
 
-      {/* Debug Dialog - displays session status */}
       <RealtimeDebugDialog
         isOpen={isDebugOpen}
         onClose={() => setIsDebugOpen(false)}
         canvasUpdates={canvasUpdates}
-      />
-
-      {/* Chat Sidebar - collapsible chat on the right */}
-      <ChatSidebar
-        canvasUpdates={canvasUpdates}
-        isSessionActive={isSessionActive}
       />
     </div>
   );

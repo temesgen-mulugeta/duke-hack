@@ -1,4 +1,4 @@
-import { create } from 'zustand';
+import { create } from "zustand";
 
 type RealtimeEvent = {
   event_id?: string;
@@ -38,6 +38,7 @@ interface RealtimeState {
   isListening: boolean;
   audioBlocked: boolean;
   currentTopic: string;
+  sendTextMessage?: (message: string) => void;
 
   // Actions
   setSessionActive: (active: boolean) => void;
@@ -49,6 +50,7 @@ interface RealtimeState {
   setIsListening: (listening: boolean) => void;
   setAudioBlocked: (blocked: boolean) => void;
   setCurrentTopic: (topic: string) => void;
+  setSendTextMessage: (sender?: (message: string) => void) => void;
   resetSession: () => void;
 }
 
@@ -61,35 +63,39 @@ const initialState = {
   microphoneActive: false,
   isListening: false,
   audioBlocked: false,
-  currentTopic: 'circle',
+  currentTopic: "circle",
+  sendTextMessage: undefined as RealtimeState["sendTextMessage"],
 };
 
 export const useRealtimeStore = create<RealtimeState>((set) => ({
   ...initialState,
 
   setSessionActive: (active) => set({ isSessionActive: active }),
-  
-  addEvent: (event) => set((state) => ({ 
-    events: [event, ...state.events] 
-  })),
-  
+
+  addEvent: (event) =>
+    set((state) => ({
+      events: [event, ...state.events],
+    })),
+
   setEvents: (events) => set({ events }),
-  
-  setToolsRegistered: (registered, tools) => set({ 
-    toolsRegistered: registered,
-    registeredTools: tools 
-  }),
-  
+
+  setToolsRegistered: (registered, tools) =>
+    set({
+      toolsRegistered: registered,
+      registeredTools: tools,
+    }),
+
   setExecutingTool: (tool) => set({ executingTool: tool }),
-  
+
   setMicrophoneActive: (active) => set({ microphoneActive: active }),
-  
+
   setIsListening: (listening) => set({ isListening: listening }),
-  
+
   setAudioBlocked: (blocked) => set({ audioBlocked: blocked }),
-  
+
   setCurrentTopic: (topic) => set({ currentTopic: topic }),
-  
+
+  setSendTextMessage: (sender) => set({ sendTextMessage: sender }),
+
   resetSession: () => set(initialState),
 }));
-

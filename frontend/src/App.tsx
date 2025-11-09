@@ -778,7 +778,7 @@ function App(): JSX.Element {
   return (
     <div className="app">
       {/* Header */}
-      <div className="header">
+      {/* <div className="header">
         <h1>Excalidraw Canvas</h1>
         <div className="controls">
           <div className="status">
@@ -788,10 +788,10 @@ function App(): JSX.Element {
               }`}
             ></div>
             <span>{isConnected ? "Connected" : "Disconnected"}</span>
-          </div>
+          </div> */}
 
           {/* Sync Controls */}
-          <div className="sync-controls">
+          {/* <div className="sync-controls">
             <button
               className={`btn-primary ${
                 syncStatus === "syncing" ? "btn-loading" : ""
@@ -801,10 +801,10 @@ function App(): JSX.Element {
             >
               {syncStatus === "syncing" && <span className="spinner"></span>}
               {syncStatus === "syncing" ? "Syncing..." : "Sync to Backend"}
-            </button>
+            </button> */}
 
             {/* Sync Status */}
-            <div className="sync-status">
+            {/* <div className="sync-status">
               {syncStatus === "success" && (
                 <span className="sync-success">✅ Synced</span>
               )}
@@ -823,7 +823,7 @@ function App(): JSX.Element {
             Clear Canvas
           </button>
         </div>
-      </div>
+      </div> */}
 
       {/* Canvas Container */}
       <div className="canvas-container">

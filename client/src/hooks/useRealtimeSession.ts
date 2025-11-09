@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { useRealtimeStore } from "@/store/realtimeStore";
 
 type RealtimeEvent = {
@@ -62,6 +62,7 @@ export function useRealtimeSession({
     setIsListening,
     setAudioBlocked,
     setCurrentTopic,
+    setSendTextMessage,
   } = useRealtimeStore();
 
   // Local refs for WebRTC
@@ -130,6 +131,13 @@ export function useRealtimeSession({
       };
       pc.onsignalingstatechange = () => {
         console.log("🔌 Signaling state:", pc.signalingState);
+      };
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          console.log("🧊 New ICE candidate gathered:", event.candidate.type);
+        } else {
+          console.log("🧊 ICE gathering complete (final candidate null)");
+        }
       };
 
       // Set up to play remote audio from the model
@@ -293,13 +301,62 @@ export function useRealtimeSession({
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
 
+      // Wait for ICE gathering to finish so we include all candidates in the SDP
+      await new Promise<void>((resolve) => {
+        let resolved = false;
+        const finish = (reason: string) => {
+          if (!resolved) {
+            resolved = true;
+            console.log(`🧊 ICE gathering finished via ${reason}`);
+            resolve();
+          }
+        };
+
+        let timeout: number | undefined;
+
+        const checkState = () => {
+          if (pc.iceGatheringState === "complete") {
+            if (timeout !== undefined) {
+              window.clearTimeout(timeout);
+              timeout = undefined;
+            }
+            pc.removeEventListener("icegatheringstatechange", checkState);
+            finish("event");
+          }
+        };
+
+        timeout = window.setTimeout(() => {
+          console.warn(
+            "⏱️ ICE gathering timeout hit - proceeding with current candidates"
+          );
+          pc.removeEventListener("icegatheringstatechange", checkState);
+          timeout = undefined;
+          finish("timeout");
+        }, 2_000);
+
+        if (pc.iceGatheringState === "complete") {
+          if (timeout !== undefined) {
+            window.clearTimeout(timeout);
+            timeout = undefined;
+          }
+          finish("immediate");
+        } else {
+          pc.addEventListener("icegatheringstatechange", checkState);
+        }
+      });
+
+      const localDescription = pc.localDescription;
+      if (!localDescription?.sdp) {
+        throw new Error("Missing local SDP after ICE gathering completed");
+      }
+
       const baseUrl = "https://api.openai.com/v1/realtime";
       const model = "gpt-realtime-mini";
 
       console.log("📡 Sending SDP offer to OpenAI...");
       const sdpResponse = await fetch(`${baseUrl}?model=${model}`, {
         method: "POST",
-        body: offer.sdp,
+        body: localDescription.sdp,
         headers: {
           Authorization: `Bearer ${EPHEMERAL_KEY}`,
           "Content-Type": "application/sdp",
@@ -384,49 +441,60 @@ export function useRealtimeSession({
   }
 
   // Send a message to the model
-  function sendClientEvent(message: unknown) {
-    const realtimeMessage = message as RealtimeEvent;
-    const dataChannel = dataChannelRef.current;
-    if (dataChannel) {
-      const timestamp = new Date().toLocaleTimeString();
-      realtimeMessage.event_id =
-        realtimeMessage.event_id || crypto.randomUUID();
+  const sendClientEvent = useCallback(
+    (message: unknown) => {
+      const realtimeMessage = message as RealtimeEvent;
+      const dataChannel = dataChannelRef.current;
+      if (dataChannel) {
+        const timestamp = new Date().toLocaleTimeString();
+        realtimeMessage.event_id =
+          realtimeMessage.event_id || crypto.randomUUID();
 
-      // send event before setting timestamp since the backend peer doesn't expect this field
-      dataChannel.send(JSON.stringify(realtimeMessage));
+        // send event before setting timestamp since the backend peer doesn't expect this field
+        dataChannel.send(JSON.stringify(realtimeMessage));
 
-      // if guard just in case the timestamp exists by miracle
-      if (!realtimeMessage.timestamp) {
-        realtimeMessage.timestamp = timestamp;
+        // if guard just in case the timestamp exists by miracle
+        if (!realtimeMessage.timestamp) {
+          realtimeMessage.timestamp = timestamp;
+        }
+        addEvent(realtimeMessage);
+      } else {
+        console.error(
+          "Failed to send message - no data channel available",
+          realtimeMessage
+        );
       }
-      addEvent(realtimeMessage);
-    } else {
-      console.error(
-        "Failed to send message - no data channel available",
-        realtimeMessage
-      );
-    }
-  }
+    },
+    [addEvent]
+  );
 
   // Send a text message to the model
-  function sendTextMessage(message: string) {
-    const event: RealtimeEvent = {
-      type: "conversation.item.create",
-      item: {
-        type: "message",
-        role: "user",
-        content: [
-          {
-            type: "input_text",
-            text: message,
-          },
-        ],
-      },
-    };
+  const sendTextMessage = useCallback(
+    (message: string) => {
+      const event: RealtimeEvent = {
+        type: "conversation.item.create",
+        item: {
+          type: "message",
+          role: "user",
+          content: [
+            {
+              type: "input_text",
+              text: message,
+            },
+          ],
+        },
+      };
 
-    sendClientEvent(event);
-    sendClientEvent({ type: "response.create" });
-  }
+      sendClientEvent(event);
+      sendClientEvent({ type: "response.create" });
+    },
+    [sendClientEvent]
+  );
+
+  useEffect(() => {
+    setSendTextMessage(() => sendTextMessage);
+    return () => setSendTextMessage(undefined);
+  }, [setSendTextMessage, sendTextMessage]);
 
   // Send canvas update to the model (DISABLED - not used currently)
   // function sendCanvasUpdateToLLM(update: CanvasUpdate) {
